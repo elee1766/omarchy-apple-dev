@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Bundle IDs as written; tvOS actool flags
+
+- xtool (pin `6a0f696`) registers bundle IDs as the project writes them, as Xcode does. Before, every ID got xtool's `XTL-<id>.` prefix, so a Linux build of an app installed next to the Xcode-built one, as a second app with its own data, instead of replacing it. The app decides once and its extensions follow: the exact ID when the team has it (for example registered by Xcode) or has neither form; the prefixed ID when only that one is registered (an app installed by xtool before keeps its identity); the prefix when Apple says the exact ID is not available (another team has it); other refusals, such as the free-team App ID limit, are reported with Apple's text. App groups follow the app: as written when registered or creatable, else an earlier xtool group (matched loosely, as before), else prefixed. An app that switches to the exact ID installs as a new app; the old `XTL-` one stays on the device with its data. `XTOOL_PREFIX_IDS=1` restores the old behavior.
+- The Linux `actool` takes `--leaderboard-identifier-prefix` and `--leaderboard-set-identifier-prefix`, which SwiftBuild passes for tvOS targets. It read the prefix as a catalog path and crashed, so tvOS apps with an asset catalog did not build. Test: `tests/actool-tvos-flags/run.sh`.
+- Checked: a tvOS release build of an app whose ID the free team registered through Xcode signed as `com.designgears.smarttube` with a tvOS development profile, without revoking a certificate.
+
 ### arm64_32 chained fixups for watchOS
 
 - The SDK toolset comes from `x86sim/darwin-tools-linux-llvm` `v1.1.0-x86sim.2`: xtool-org's 1.1.0 with lld writing chained fixups (`DYLD_CHAINED_PTR_32`) for arm64_32, as ld64 does for watchOS 7 and later. Before, the arm64_32 slice of a watchOS app used dyld opcode fixups and lazy-binding stubs. Long gaps between pointers start a new chain in the page (multi-start pages); bind addends above 63 or below 0 go into the imports table. A segment with more chain starts than the 15-bit start index holds is an error that suggests `-no_fixup_chains`, as in ld64.
