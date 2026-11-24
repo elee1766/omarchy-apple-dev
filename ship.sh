@@ -74,9 +74,10 @@ fi
 if [ "$dev_flag" = 1 ] && [ "$simulator" = 1 ]; then
   usage
 fi
-# actool's --platform: the app's own platform (the iOS car schema either way)
-platform=iphoneos
-[ "$simulator" = 1 ] && platform=iphonesimulator
+case "${TRIPLE:-}" in
+  ''|*-simulator) ;;
+  *) [ "$simulator" = 1 ] && { echo "--simulator needs a *-simulator TRIPLE (got $TRIPLE)" >&2; exit 2; } ;;
+esac
 if [ "$upload" = 1 ]; then
   : "${ASC_KEY_ID:?--upload needs ASC_KEY_ID}" "${ASC_ISSUER_ID:?--upload needs ASC_ISSUER_ID}"
   : "${ASC_KEY_PATH:?--upload needs ASC_KEY_PATH (the .p8 file)}"
@@ -123,7 +124,7 @@ for target in "$app" "$app"/PlugIns/*.appex; do
 done
 
 echo "== 3. App icon catalog =="
-PY="$PY" ACTOOL="$ACTOOL" PLATFORM="$platform" "$here/tools/compile-app-icon.sh" "$app"
+PY="$PY" ACTOOL="$ACTOOL" "$here/tools/compile-app-icon.sh" "$app"
 
 if [ "$device" = 1 ]; then
   echo "== 4. Root-level resources =="
