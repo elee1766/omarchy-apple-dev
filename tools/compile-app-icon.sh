@@ -7,6 +7,7 @@
 #
 # usage: tools/compile-app-icon.sh APP
 # PY and ACTOOL override the python and actool used (defaults as in ship.sh).
+# PLATFORM overrides actool's --platform (default: from the app's CFBundleSupportedPlatforms).
 set -euo pipefail
 app=${1:?usage: compile-app-icon.sh APP}
 [ -d "$app" ] || { echo "no app at $app" >&2; exit 1; }
@@ -38,6 +39,7 @@ print({"AppleTVOS": "appletvos tv", "AppleTVSimulator": "appletvsimulator tv",
        "WatchOS": "watchos watch", "WatchSimulator": "watchsimulator watch",
        "XROS": "xros vision", "XRSimulator": "xrsimulator vision",
        "iPhoneSimulator": "iphonesimulator -"}.get(p, "iphoneos -"))' "$app/Info.plist")
+platform=${PLATFORM:-$platform}
 device_args=()
 [ "$device" = - ] || device_args=(--target-device "$device")
 alt_args=()
