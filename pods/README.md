@@ -10,6 +10,11 @@ Reanimated, MMKV/Nitro, Expo modules) built in Release for arm64 iPhone, unsigne
 below. The result: `Oku.app` with an arm64 executable, 24 embedded frameworks and a Hermes bytecode
 bundle. Not yet done: signing, install on a phone, launch.
 
+Verified 2026-11-25: the same app built with `PLATFORM=simulator` installs and runs in x86Sim 0.6.0
+(iPhone 17 Pro, iOS 27.2 24B8117) on Debian 13: it shows the tracking prompt, then its welcome screen
+with working accessibility elements. The first launch after the device's first boot left SpringBoard
+busy; restarting the device and launching again worked.
+
 ## Use
 
 ```
