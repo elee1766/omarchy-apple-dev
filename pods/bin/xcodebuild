@@ -1,7 +1,97 @@
 #!/bin/sh
-# xcodebuild stand-in for CocoaPods on Linux. React Native's Podfile only asks for the version.
-# XCODE_VERSION/XCODE_BUILD name the Xcode whose SDK is installed (install-toolchain.sh records it).
-case "$1" in
-	-version) printf 'Xcode %s\nBuild version %s\n' "${XCODE_VERSION:-27.2}" "${XCODE_BUILD:-27B52}" ;;
-	*) echo "xcodebuild (linux): only -version is supported; build with pods/build.sh" >&2; exit 64 ;;
+# xcodebuild stand-in for CocoaPods and pod build scripts on Linux.
+#   xcodebuild -version
+#       Version of the Xcode whose SDK is installed.
+#   xcodebuild build -scheme <Product> -sdk <sdk> [-configuration C] [-derivedDataPath D] [SYMROOT=..] [OBJROOT=..] [KEY=VALUE...]
+#       Run from a Swift package directory: builds the dynamic library product with SwiftPM and lays
+#       it out the way Xcode does for a package scheme, so scripts that wrap a nested xcodebuild
+#       (expo-modules-jsi build-xcframework.sh) find their inputs:
+#         $SYMROOT/<C>-<sdk>/PackageFrameworks/<P>.framework/<P>
+#         $SYMROOT/<C>-<sdk>/<P>.swiftmodule/{arm64-apple-ios.swiftinterface,...}
+#         $OBJROOT/GeneratedModuleMaps-<sdk>/<P>-Swift.h
+# Anything else exits 64 with the unsupported arguments.
+set -e
+BUNDLE=${SWEETPAD_DARWIN_SDK:-${DARWIN_SDK_BUNDLE:-$HOME/.swiftpm/swift-sdks/darwin.artifactbundle}}
+
+if [ "$1" = -version ]; then
+	if [ -f "$BUNDLE/version.plist" ]; then
+		python3 - "$BUNDLE/version.plist" <<'EOF'
+import plistlib, sys
+info = plistlib.load(open(sys.argv[1], "rb"))
+print("Xcode " + info["CFBundleShortVersionString"])
+print("Build version " + info["ProductBuildVersion"])
+EOF
+	else
+		printf 'Xcode %s\nBuild version %s\n' "${XCODE_VERSION:-27.2}" "${XCODE_BUILD:-27B52}"
+	fi
+	exit 0
+fi
+
+action= scheme= sdk=iphoneos config=Release derived= symroot= objroot=
+while [ $# -gt 0 ]; do
+	case $1 in
+		build) action=build; shift ;;
+		-scheme) scheme=$2; shift 2 ;;
+		-sdk) sdk=$2; shift 2 ;;
+		-configuration) config=$2; shift 2 ;;
+		-derivedDataPath) derived=$2; shift 2 ;;
+		-destination) shift 2 ;;
+		-quiet|-disableAutomaticPackageResolution|-skipPackagePluginValidation|-skipMacroValidation|-parallelizeTargets) shift ;;
+		SYMROOT=*) symroot=${1#SYMROOT=}; shift ;;
+		OBJROOT=*) objroot=${1#OBJROOT=}; shift ;;
+		# Settings that only steer Xcode's packaging, coverage or symbol handling. SwiftPM's
+		# release build already emits the module interface and leaves coverage off.
+		*=*) shift ;;
+		*) echo "xcodebuild (linux): unsupported argument: $1" >&2; exit 64 ;;
+	esac
+done
+[ "$action" = build ] && [ -n "$scheme" ] || { echo "xcodebuild (linux): only -version and 'build -scheme' of a Swift package are supported" >&2; exit 64; }
+[ -f Package.swift ] || { echo "xcodebuild (linux): no Package.swift in $(pwd)" >&2; exit 64; }
+
+case $sdk in
+	iphoneos) triple=arm64-apple-ios ;;
+	iphonesimulator) triple=arm64-apple-ios-simulator ;;
+	*) echo "xcodebuild (linux): sdk $sdk is not built on Linux" >&2; exit 64 ;;
 esac
+case $config in [Dd]ebug) swiftcfg=debug ;; *) swiftcfg=release ;; esac
+derived=${derived:-$(pwd)/.build/xcodebuild}
+symroot=${symroot:-$derived/Build/Products}
+objroot=${objroot:-$derived/Build/Intermediates.noindex}
+scratch=$derived/SwiftPM
+
+. "$(dirname "$0")/ld64.sh"
+
+toolchain=$(dirname "$(dirname "$(command -v swiftc)")")
+# <swift/bridging> ships with the Swift toolchain, not the SDK. C++ types in a resilient module are
+# accepted by Xcode's Swift; the open-source compiler needs AssumeResilientCxxTypes for the same code.
+swift build --build-system native -c "$swiftcfg" --swift-sdk "$triple" --product "$scheme" --scratch-path "$scratch" \
+	-Xcxx "-I$toolchain/include" -Xswiftc -Xcc -Xswiftc "-I$toolchain/include" \
+	-Xswiftc -enable-experimental-feature -Xswiftc AssumeResilientCxxTypes \
+	-Xswiftc "-ld-path=$LD64"
+
+out=$scratch/$triple/$swiftcfg
+products=$symroot/$config-$sdk
+fw=$products/PackageFrameworks/$scheme.framework
+rm -rf "$fw" "$products/$scheme.swiftmodule"
+mkdir -p "$fw" "$products/$scheme.swiftmodule" "$objroot/GeneratedModuleMaps-$sdk"
+cp "$out/lib$scheme.dylib" "$fw/$scheme"
+# Xcode names the framework binary by @rpath; SwiftPM names the dylib by its file.
+llvm-install-name-tool -id "@rpath/$scheme.framework/$scheme" "$fw/$scheme" 2>/dev/null || install_name_tool -id "@rpath/$scheme.framework/$scheme" "$fw/$scheme"
+cat > "$fw/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>$scheme</string>
+<key>CFBundleIdentifier</key><string>$scheme</string>
+<key>CFBundleName</key><string>$scheme</string>
+<key>CFBundlePackageType</key><string>FMWK</string>
+<key>CFBundleShortVersionString</key><string>1.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleSupportedPlatforms</key><array><string>${sdk}</string></array>
+</dict></plist>
+EOF
+[ -d "$out/lib$scheme.dylib.dSYM" ] && cp -a "$out/lib$scheme.dylib.dSYM" "$products/$scheme.framework.dSYM"
+for ext in swiftinterface private.swiftinterface package.swiftinterface swiftdoc swiftmodule abi.json; do
+	[ -f "$out/Modules/$scheme.$ext" ] && cp "$out/Modules/$scheme.$ext" "$products/$scheme.swiftmodule/$triple.$ext"
+done
+cp "$out/$scheme.build/include/$scheme-Swift.h" "$objroot/GeneratedModuleMaps-$sdk/"

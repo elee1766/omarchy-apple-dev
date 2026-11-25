@@ -63,14 +63,19 @@ case $tool in
 		[ $action = find ] && { command -v $cc; exit 0; }
 		has_target=
 		for a in "$@"; do case $a in -target|--target=*|-arch|-m*-version-min=*) has_target=1 ;; esac; done
+		. "$(dirname "$0")/ld64.sh"
 		if [ -n "$has_target" ]; then
-			exec $cc -isysroot "$sdkpath" -fuse-ld=lld "$@"
+			exec $cc -isysroot "$sdkpath" -fuse-ld=lld "--ld-path=$LD64" "$@"
 		fi
-		exec $cc -isysroot "$sdkpath" -fuse-ld=lld -target "$arch-apple-$os$minver$env" "$@" ;;
+		exec $cc -isysroot "$sdkpath" -fuse-ld=lld "--ld-path=$LD64" -target "$arch-apple-$os$minver$env" "$@" ;;
 	swiftc|swift)
 		[ $action = find ] && { command -v $tool; exit 0; }
-		exec $tool -sdk "$sdkpath" "$@" ;;
-	ld|ld64) [ $action = find ] && { command -v ld64.lld; exit 0; }; exec ld64.lld "$@" ;;
+		. "$(dirname "$0")/ld64.sh"
+		exec $tool -sdk "$sdkpath" "-ld-path=$LD64" "$@" ;;
+	ld|ld64)
+		. "$(dirname "$0")/ld64.sh"
+		[ $action = find ] && { echo "$LD64"; exit 0; }
+		exec "$LD64" "$@" ;;
 	libtool) [ $action = find ] && { command -v llvm-libtool-darwin; exit 0; }; exec llvm-libtool-darwin "$@" ;;
 	ar|lipo|otool|nm|strip|size|install_name_tool|dsymutil|objdump|ranlib)
 		t=$(command -v llvm-$tool || command -v $tool)
