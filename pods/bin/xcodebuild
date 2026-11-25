@@ -1,0 +1,7 @@
+#!/bin/sh
+# xcodebuild stand-in for CocoaPods on Linux. React Native's Podfile only asks for the version.
+# XCODE_VERSION/XCODE_BUILD name the Xcode whose SDK is installed (install-toolchain.sh records it).
+case "$1" in
+	-version) printf 'Xcode %s\nBuild version %s\n' "${XCODE_VERSION:-27.2}" "${XCODE_BUILD:-27B52}" ;;
+	*) echo "xcodebuild (linux): only -version is supported; build with pods/build.sh" >&2; exit 64 ;;
+esac
