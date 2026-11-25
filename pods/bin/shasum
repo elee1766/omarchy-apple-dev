@@ -1,0 +1,11 @@
+#!/bin/sh
+# macOS shasum (Perl) for pod build scripts. Supports -a 1|224|256|384|512 and the GNU *sum options.
+algo=1
+while [ $# -gt 0 ]; do
+	case $1 in
+		-a) algo=$2; shift 2 ;;
+		-a*) algo=${1#-a}; shift ;;
+		*) break ;;
+	esac
+done
+exec sha${algo}sum "$@"
