@@ -8,6 +8,8 @@
 #     Swift modules; Swift Build only passes its generated module map to direct dependents.
 #  3. Icon Composer .icon folders that `expo prebuild` adds with lastKnownFileType "unknown" are
 #     still sent to actool by Xcode; Swift Build needs the folder.iconcomposer.icon type.
+#  4. CocoaPods' generated embed scripts call /usr/bin/codesign by absolute path; on Linux the
+#     codesign on PATH (pods/bin/codesign) is used instead.
 require 'xcodeproj'
 
 ios = ARGV.fetch(0) { abort 'usage: fix-pods-project.rb <ios-dir>' }
@@ -46,6 +48,14 @@ pods.native_targets.each do |target|
   end
 end
 pods.save if changed
+
+Dir.glob(File.join(ios, 'Pods', 'Target Support Files', '**', '*.sh')).each do |script|
+  text = File.read(script)
+  next unless text.include?('/usr/bin/codesign')
+
+  File.write(script, text.gsub('/usr/bin/codesign', 'codesign'))
+  puts "#{File.basename(script)}: codesign from PATH"
+end
 
 Dir.glob(File.join(ios, '*.xcodeproj')).each do |path|
   app = Xcodeproj::Project.open(path)

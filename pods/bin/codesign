@@ -1,0 +1,8 @@
+#!/bin/sh
+# macOS codesign for CocoaPods' embed-frameworks script on Linux. sweetpad signs Mach-O files when
+# run under the name `codesign` (ad hoc with `--sign -`, or with its configured identity).
+sp=$(command -v sweetpad) || { echo "codesign (linux): sweetpad not on PATH" >&2; exit 69; }
+dir=${TMPDIR:-/tmp}/pods-codesign-$(id -u)
+mkdir -p "$dir"
+ln -sfn "$(readlink -f "$sp")" "$dir/codesign"
+exec "$dir/codesign" "$@"
