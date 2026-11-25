@@ -1,0 +1,83 @@
+#!/bin/sh
+# xcrun stand-in for CocoaPods and pod build scripts on Linux.
+# SDKs come from the registered darwin Swift SDK (install-toolchain.sh, full mode).
+#   xcrun [--sdk <name>] [--show-sdk-path|--show-sdk-version|--show-sdk-platform-path|--find <tool>] [tool args...]
+# clang/clang++/cc/c++ get -isysroot and a default -target for the chosen SDK; swiftc gets -sdk.
+# Other tools resolve to the llvm-* tool of the same name, or to PATH.
+set -e
+BUNDLE=${DARWIN_SDK_BUNDLE:-$HOME/.swiftpm/swift-sdks/darwin.artifactbundle}
+DEV=$BUNDLE/Developer
+sdk=${SDKROOT:-iphoneos}
+action=run
+while [ $# -gt 0 ]; do
+	case $1 in
+		-sdk|--sdk) sdk=$2; shift 2 ;;
+		-r|--run) shift ;;
+		-v|--verbose|-l|--log|-n|--no-cache|-k|--kill-cache) shift ;;
+		-f|--find) action=find; tool=$2; shift 2 ;;
+		--show-sdk-path) action=path; shift ;;
+		--show-sdk-version) action=version; shift ;;
+		--show-sdk-platform-path) action=platform; shift ;;
+		--show-sdk-build-version) action=build; shift ;;
+		*) break ;;
+	esac
+done
+
+# An absolute SDKROOT path picks its platform by name.
+case $sdk in
+	/*) sdkpath=$sdk; sdk=$(basename "$sdk" .sdk | tr 'A-Z' 'a-z' | sed 's/[0-9.]*$//') ;;
+esac
+case $sdk in
+	iphoneos*) plat=iPhoneOS; os=ios; env= ;;
+	iphonesimulator*) plat=iPhoneSimulator; os=ios; env=-simulator ;;
+	macosx*) plat=MacOSX; os=macos; env= ;;
+	appletvos*) plat=AppleTVOS; os=tvos; env= ;;
+	appletvsimulator*) plat=AppleTVSimulator; os=tvos; env=-simulator ;;
+	watchos*) plat=WatchOS; os=watchos; env= ;;
+	watchsimulator*) plat=WatchSimulator; os=watchos; env=-simulator ;;
+	xros*) plat=XROS; os=xros; env= ;;
+	xrsimulator*) plat=XRSimulator; os=xros; env=-simulator ;;
+	*) echo "xcrun (linux): unknown sdk $sdk" >&2; exit 1 ;;
+esac
+platdir=$DEV/Platforms/$plat.platform
+sdkpath=${sdkpath:-$platdir/Developer/SDKs/$plat.sdk}
+[ -d "$sdkpath" ] || { echo "xcrun (linux): no SDK at $sdkpath (run install-toolchain.sh --mode full)" >&2; exit 1; }
+sdkver() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["Version"])' "$sdkpath/SDKSettings.json"; }
+
+case $action in
+	path) echo "$sdkpath"; exit 0 ;;
+	platform) echo "$platdir"; exit 0 ;;
+	version) sdkver; exit 0 ;;
+	build) python3 -c 'import plistlib,sys;print(plistlib.load(open(sys.argv[1],"rb"))["ProductBuildVersion"])' "$sdkpath/System/Library/CoreServices/SystemVersion.plist" 2>/dev/null || sdkver; exit 0 ;;
+esac
+
+[ $action = find ] || { tool=$1; shift; }
+[ -n "$tool" ] || { echo "xcrun (linux): no tool given" >&2; exit 64; }
+
+# Default arch: arm64. Minimum OS: the SDK's own version unless the caller passes one.
+arch=arm64
+minver=$(sdkver)
+case $tool in
+	clang|clang++|cc|c++|gcc|g++)
+		case $tool in clang++|c++|g++) cc=clang++ ;; *) cc=clang ;; esac
+		[ $action = find ] && { command -v $cc; exit 0; }
+		has_target=
+		for a in "$@"; do case $a in -target|--target=*|-arch|-m*-version-min=*) has_target=1 ;; esac; done
+		if [ -n "$has_target" ]; then
+			exec $cc -isysroot "$sdkpath" -fuse-ld=lld "$@"
+		fi
+		exec $cc -isysroot "$sdkpath" -fuse-ld=lld -target "$arch-apple-$os$minver$env" "$@" ;;
+	swiftc|swift)
+		[ $action = find ] && { command -v $tool; exit 0; }
+		exec $tool -sdk "$sdkpath" "$@" ;;
+	ld|ld64) [ $action = find ] && { command -v ld64.lld; exit 0; }; exec ld64.lld "$@" ;;
+	libtool) [ $action = find ] && { command -v llvm-libtool-darwin; exit 0; }; exec llvm-libtool-darwin "$@" ;;
+	ar|lipo|otool|nm|strip|size|install_name_tool|dsymutil|objdump|ranlib)
+		t=$(command -v llvm-$tool || command -v $tool)
+		[ $action = find ] && { echo "$t"; exit 0; }
+		exec "$t" "$@" ;;
+	*)
+		t=$(command -v "$tool") || { echo "xcrun (linux): $tool not found" >&2; exit 72; }
+		[ $action = find ] && { echo "$t"; exit 0; }
+		exec "$t" "$@" ;;
+esac
