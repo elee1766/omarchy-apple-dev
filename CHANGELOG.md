@@ -1,5 +1,61 @@
 # Changelog
 
+## Unreleased
+
+### Fedora 45 install notes: libxml2 2.13 and an LLD `ld`
+
+- `docs/DISTROS.md` gains a Fedora 45 (aarch64, Asahi) section: a full-mode
+  install run inside a distrobox, so the host gets no build packages. It
+  covers two Fedora 45 problems that stop the Swift 6.4 swift.org UBI 9
+  toolchains (6.4.1 and 6.4.2 were run). The
+  toolchain's `swift-build` and LLDB need `libxml2.so.2`, which Fedora's
+  `libxml2_2.13` package provides. SwiftBuild cannot read binutils 2.47's
+  `GNU ld version 2.47.20260726`, so every `swift build` fails with
+  ``Could not parse output of `/usr/sbin/ld -version_details` as JSON``.
+  Making Fedora's `ld.lld` the `ld` alternative fixes it, and `.build/out`
+  must be deleted after a failed run because SwiftBuild caches the result.
+  Receipt: `receipts/2026-11-23-fedora-45-asahi-distrobox.md`.
+## v0.4.8 - 2026-11-24
+
+### `p`, `po` and `expression` work in `device-run.sh --lldb`
+
+- Swift expressions on the device failed on every Linux host: LLDB found no Xcode Swift
+  resource dir for the iOS target (`HostInfoError`), fell back to its own Linux one, and
+  stopped with `missing required module 'SwiftShims'` (or, with `target.sdk-path` set, a
+  `malformed or corrupted precompiled file` from the Linux `CoreFoundation` module shadowing the
+  SDK's). Only `frame variable` worked.
+- New `tools/lldb-ios-shadow.sh` builds a shadow toolchain in
+  `~/.cache/omarchy-apple-dev/lldb-ios/<hash>/`: `lldb` and `liblldb` from the toolchain (hard
+  links, or copies when the cache is on another filesystem, as with btrfs subvolumes), with the
+  darwin SDK's `XcodeDefault.xctoolchain/usr/lib/swift` as LLDB's Swift resource dir (it reads
+  it from `<dir of liblldb.so>/swift`, symlinks resolved) plus the toolchain's `linux/` and
+  `host/`. LLDB's Python package is mirrored with `_lldb.so` re-pointed at the shadow `liblldb`,
+  so a copy is never mapped twice. A stamp written last (toolchain, SDK, `lldb`/`liblldb` size
+  and mtime) decides reuse; any change, or a build that stopped early, rebuilds it in a temp
+  dir that then replaces it, under `flock` so concurrent runs wait and reuse.
+- `device-run.sh --lldb` (userspace tunnel path) runs that lldb and sets `target.sdk-path` to the
+  iPhoneOS SDK. On an iPhone 15 with iOS 27.2.1: `p launches * 2` → `84`, `po greeting`,
+  `expression -- greeting.uppercased()`. `LLDB_PLAIN=1` restores the old behaviour; if the
+  script fails, a note is printed and the toolchain's lldb is used. `--sudo` is unchanged.
+- `tests/lldb-ios-shadow/check.sh` (in `tests/run.sh`, 41 checks) covers the tree with stub files:
+  layout, the Python link (with a decoy package), reuse, rebuilds (toolchain, SDK, lost stamp),
+  copy mode, killed-build leftovers, and 8 concurrent runs with and without `flock`.
+  Receipt: `receipts/2026-11-23-device-lldb-expressions.md`.
+
+### Fedora 45 install notes: libxml2 2.13 and an LLD `ld`
+
+- `docs/DISTROS.md` gains a Fedora 45 (aarch64, Asahi) section: a full-mode
+  install run inside a distrobox, so the host gets no build packages. It
+  covers two Fedora 45 problems that stop the Swift 6.4 swift.org UBI 9
+  toolchains (6.4.1 and 6.4.2 were run). The
+  toolchain's `swift-build` and LLDB need `libxml2.so.2`, which Fedora's
+  `libxml2_2.13` package provides. SwiftBuild cannot read binutils 2.47's
+  `GNU ld version 2.47.20260726`, so every `swift build` fails with
+  ``Could not parse output of `/usr/sbin/ld -version_details` as JSON``.
+  Making Fedora's `ld.lld` the `ld` alternative fixes it, and `.build/out`
+  must be deleted after a failed run because SwiftBuild caches the result.
+  Receipt: `receipts/2026-11-23-fedora-45-asahi-distrobox.md`.
+
 ## v0.4.7 — 2026-11-24
 
 ### Device builds carry the real SDK version
